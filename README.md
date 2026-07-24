@@ -26,52 +26,45 @@ The project demonstrates how Ethernet communication works at the packet level, i
 ## Software Architecture
 
 
-<div style="text-align: center; display: block;">
-
 ```
-Application
-│
-▼
-ARP
-│
-▼
+ Application
+      │
+      ▼
+     ARP
+      │
+      ▼
 Ethernet Driver
-│
-▼
+      │
+      ▼
 STM32 HAL Ethernet
-│
-▼
+      │
+      ▼
 Ethernet MAC / DMA
-│
-▼
-PHY
-│
-▼
+      │
+      ▼
+     PHY
+      │
+      ▼
 Ethernet Network
 ```
 
-</div>
 
 Incoming Ethernet frames are processed by the Ethernet driver, which parses the Ethernet header and dispatches packets to the appropriate protocol handler based on the EtherType field.
-
-<div style="text-align: center; display: block;">
 
 
 ```
 HAL_ETH_ReadData()
-│
-▼
+      │
+      ▼
 Ethernet Header
-│
-▼
-EtherType
-│
+      │
+      ▼
+  EtherType
+      │
       ├── ARP
-       ├── IPv4
-            └── IPv6     
+      ├── IPv4
+      └── IPv6     
 ```
-
-</div>
 
 ---
 
@@ -85,25 +78,23 @@ When an ARP request is received, the project:
 4. Constructs an ARP reply.
 5. Transmits the reply using the STM32 Ethernet HAL.
 
-<div style="text-align: center; display: block;">
-
 
 ```
-ARP Request
-│
-▼
-Parse Packet
-│
-▼
-Verify Target IP
-│
-▼
-Build Reply
-│
-▼
+      ARP Request
+            │
+            ▼
+      Parse Packet
+            │
+            ▼
+      Verify Target IP
+            │
+            ▼
+      Build Reply
+            │
+            ▼
 Transmit Ethernet Frame
 ```
-</div>
+
 
 ---
 
