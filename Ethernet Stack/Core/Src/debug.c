@@ -27,6 +27,7 @@
 
 /* Static configuration tables */
 extern UART_HandleTypeDef huart3;
+#define DEBUG_BUFFER_SIZE 128
 
 /******************************************************************************
  * Private Variables
@@ -62,15 +63,26 @@ extern UART_HandleTypeDef huart3;
  */
  void debugPrint(const char *text)
 {
-	HAL_UART_Transmit(&huart3,
-					  (uint8_t *)text,
-					  strlen(text),
-					  HAL_MAX_DELAY);
+	 HAL_StatusTypeDef status = HAL_UART_Transmit(
+	     &huart3,
+	     (uint8_t *)text,
+	     strlen(text),
+	     HAL_MAX_DELAY);
+
+	 if (status != HAL_OK)
+	 {
+	     // Future: count errors or set a debug flag
+	 }
 }
 
+ /**
+  * @brief Transmit a null-terminated string over the debug UART.
+  *
+  * @param text Pointer to the string to transmit.
+  */
 void debugPrintf(const char *fmt, ...)
 {
-	char buffer[128];
+	char buffer[DEBUG_BUFFER_SIZE];
 
 	va_list args;
 	va_start(args, fmt);
@@ -78,6 +90,12 @@ void debugPrintf(const char *fmt, ...)
 	va_end(args);
 
 	debugPrint(buffer);
+}
+
+void debugPrintLine(const char *text)
+{
+    debugPrint(text);
+    debugPrint("\r\n");
 }
 
 /* Print ethernet mac */
@@ -88,4 +106,16 @@ void printMac(const uint8_t *mac)
         mac[3], mac[4], mac[5]);
 
 	debugPrint("\n");
+}
+
+void debugInit(void)
+{
+	debugPrintLine("=================================");
+	debugPrintLine(" Project 15 HTTP Web Server");
+	debugPrintLine(" STM32 NUCLEO-H563ZI");
+	debugPrintLine("=================================");
+
+	debugPrintf("System Clock: %lu Hz\r\n", HAL_RCC_GetSysClockFreq());
+
+	debugPrintLine("UART Debug Initialized");
 }

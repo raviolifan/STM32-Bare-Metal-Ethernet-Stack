@@ -51,10 +51,10 @@ typedef struct
  */
 typedef struct
 {
-    uint8_t destination[ETH_MAC_LENGTH];   /**< Destination MAC address. */
-    uint8_t source[ETH_MAC_LENGTH];        /**< Source MAC address. */
-    uint16_t etherType;                    /**< Encapsulated protocol type. */
-    uint8_t payload[1500];                 /**< Ethernet payload. */
+    void *packet;
+    EthernetHeader *header;
+    uint16_t etherType;
+    uint16_t length;
 
 } EthernetFrame;
 

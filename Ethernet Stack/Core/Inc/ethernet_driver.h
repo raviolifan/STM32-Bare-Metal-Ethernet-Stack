@@ -19,15 +19,17 @@
  * Public Types
  ******************************************************************************/
 
-/* Enums */
-
-/* Structures */
+//typedef struct
+//{
+//	void *packet;
+//	EthernetHeader *header;
+//	uint16_t etherType;
+//} EthernetFrame;
 
 /******************************************************************************
  * Public Macros
  ******************************************************************************/
 
-/* Public constants */
 #define ETHERTYPE_IPV4    0x0800
 #define ETHERTYPE_ARP     0x0806
 #define ETHERTYPE_IPV6    0x86DD

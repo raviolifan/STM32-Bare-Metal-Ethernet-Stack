@@ -18,55 +18,69 @@
 #include "main.h"
 #include "ethernet_frame.h"
 #include "ethernet_driver.h"
+#include "main.h"
+#include <stdbool.h>
+#include "network_config.h"
 /******************************************************************************
  * Private Types
  ******************************************************************************/
-
-/* Private structures */
-extern ETH_HandleTypeDef heth;
 
 /******************************************************************************
  * Private Constants
  ******************************************************************************/
 
-/* Static configuration tables */
-static uint8_t localMac[6] =
-{
-		0x02,
-		0x80,
-		0xE1,
-		0X00,
-		0X00,
-		0X01
-};
-
-static uint8_t localIp[4] =
-{
-		192,
-		168,
-		7,
-		200
-};
 /******************************************************************************
  * Private Variables
  ******************************************************************************/
 
-/* Runtime state */
-
+static ARPCacheEntry arpCache[ARP_CACHE_SIZE];
 /******************************************************************************
  * Private Function Prototypes
  ******************************************************************************/
+void arpPrintCache(void);
+static uint32_t arpIpToUint32(const uint8_t ip[4]);
 
 /******************************************************************************
  * Private Functions
  ******************************************************************************/
+void arpPrintCache(void)
+{
+    debugPrint("\r\n===== ARP Cache =====\r\n");
 
-/*
- * Retrieve the runtime state for the requested button.
- *
- * Returns NULL if the button identifier is invalid.
- */
+    for (uint32_t i = 0; i < ARP_CACHE_SIZE; i++)
+    {
+        if (!arpCache[i].valid)
+        {
+            debugPrintf("%lu: <empty>\r\n", i);
+            continue;
+        }
 
+        uint32_t ip = arpCache[i].ipAddress;
+
+        debugPrintf("%lu:\r\n", i);
+        debugPrintf("IP  : %lu.%lu.%lu.%lu\r\n",
+            (ip >> 24) & 0xFF,
+            (ip >> 16) & 0xFF,
+            (ip >> 8) & 0xFF,
+            ip & 0xFF);
+
+        debugPrintf("MAC : %02X:%02X:%02X:%02X:%02X:%02X\r\n\r\n",
+            arpCache[i].macAddress[0],
+            arpCache[i].macAddress[1],
+            arpCache[i].macAddress[2],
+            arpCache[i].macAddress[3],
+            arpCache[i].macAddress[4],
+            arpCache[i].macAddress[5]);
+    }
+}
+
+static uint32_t arpIpToUint32(const uint8_t ip[4])
+{
+    return ((uint32_t)ip[0] << 24) |
+           ((uint32_t)ip[1] << 16) |
+           ((uint32_t)ip[2] << 8)  |
+            (uint32_t)ip[3];
+}
 /******************************************************************************
  * Public Functions
  ******************************************************************************/
@@ -74,35 +88,58 @@ static uint8_t localIp[4] =
 /**
  * @brief Process a received ARP packet.
  *
- * Displays information contained in a received ARP request or reply.
+ * Displays the contents of a received ARP packet for debugging.
  *
  * @param arp Pointer to the received ARP packet.
  */
- void arpReceive(const ArpPacket *arp)
+ bool arpReceive(const ArpPacket *arp)
  {
-	 debugPrint("\r\n==== ARP Packet =====\r\n");
+	if (__builtin_bswap16(arp->hardwareType) != ARP_HW_ETHERNET)
+	{
+		return false;
+	}
 
-	 debugPrintf("Operation: %u\r\n",
-			 __builtin_bswap16(arp->operation));
+	if (__builtin_bswap16(arp->protocolType) != ARP_PROTO_IPV4)
+	{
+		return false;
+	}
 
-	 debugPrintf("Sender IP: %u.%u.%u.%u\r\n",
-			 arp->senderIp[0],
-			 arp->senderIp[1],
-			 arp->senderIp[2],
-			 arp->senderIp[3]);
+	if (arp->hardwareLength != ETH_MAC_LENGTH)
+	{
+		return false;
+	}
 
-	 debugPrintf("Target IP: %u.%u.%u.%u\r\n",
-			 arp->targetIp[0],
-			 arp->targetIp[1],
-			 arp->targetIp[2],
-			 arp->targetIp[3]);
+	if (arp->protocolLength != ARP_IP_LENGTH)
+	{
+		return false;
+	}
+
+//	 debugPrint("\r\n==== ARP Packet =====\r\n");
+//
+//	 debugPrintf("Operation: %u\r\n",
+//			 __builtin_bswap16(arp->operation));
+//
+//	 debugPrintf("Sender IP: %u.%u.%u.%u\r\n",
+//			 arp->senderIp[0],
+//			 arp->senderIp[1],
+//			 arp->senderIp[2],
+//			 arp->senderIp[3]);
+//
+//	 debugPrintf("Target IP: %u.%u.%u.%u\r\n",
+//			 arp->targetIp[0],
+//			 arp->targetIp[1],
+//			 arp->targetIp[2],
+//			 arp->targetIp[3]);
+
+	return true;
  }
 
  /**
-  * @brief Transmit an ARP reply.
+  * @brief Construct and transmit an ARP reply.
   *
-  * Constructs an ARP reply using the received Ethernet and ARP headers
-  * and transmits it through the STM32 Ethernet MAC.
+  * Verifies that the received ARP request targets the local device,
+  * constructs an ARP reply using the received Ethernet and ARP
+  * information, and transmits the completed frame.
   *
   * @param rxHeader Pointer to the received Ethernet header.
   * @param request Pointer to the received ARP request.
@@ -113,7 +150,7 @@ static uint8_t localIp[4] =
 	 static ArpFrame reply;
 
 	 /* Verify the ARP request is for this device. */
-	 if(memcmp(request->targetIp, localIp, 4) != 0)
+	 if (memcmp(request->targetIp, LOCAL_IP_ADDRESS, 4) != 0)
 	 {
 	     return;
 	 }
@@ -124,7 +161,7 @@ static uint8_t localIp[4] =
 			 ETH_MAC_LENGTH);
 
 	 memcpy(reply.ethernet.source,
-			 localMac,
+			 LOCAL_MAC_ADDRESS,
 			 ETH_MAC_LENGTH);
 
 
@@ -140,11 +177,11 @@ static uint8_t localIp[4] =
 
 	 /* Build ARP packet. */
 	 memcpy(reply.arp.senderMac,
-			 localMac,
+			 LOCAL_MAC_ADDRESS,
 			 ETH_MAC_LENGTH);
 
 	 memcpy(reply.arp.senderIp,
-			 localIp,
+			 LOCAL_IP_ADDRESS,
 			 ARP_IP_LENGTH);
 
 	 memcpy(reply.arp.targetMac,
@@ -154,19 +191,6 @@ static uint8_t localIp[4] =
 	 memcpy(reply.arp.targetIp,
 			 request->senderIp,
 			 ARP_IP_LENGTH);
-
-	 /* Configure transmit buffer. */
-	 ETH_BufferTypeDef txBuffer = {0};
-
-	 txBuffer.buffer = (uint8_t *)&reply;
-	 txBuffer.len    = sizeof(ArpFrame);
-	 txBuffer.next   = NULL;
-
-	 ETH_TxPacketConfigTypeDef txConfig = {0};
-
-	 txConfig.Length 	= sizeof(ArpFrame);
-	 txConfig.TxBuffer 	= &txBuffer;
-	 txConfig.pData 	= &reply;
 
 	 debugPrint("\r\n===== ARP Reply =====\r\n");
 
@@ -209,3 +233,115 @@ static uint8_t localIp[4] =
 	 }
  }
 
+ /**
+  * @brief Process a received Ethernet frame containing an ARP packet.
+  *
+  * Locates the ARP payload, displays the received packet for debugging,
+  * processes the packet contents, and transmits an ARP reply when the
+  * request targets the local device.
+  *
+  * @param frame Pointer to the received Ethernet frame.
+  */
+void arpReceiveFrame(EthernetFrame *frame)
+{
+    debugPrint("ARP\r\n");
+
+    /* Locate the ARP payload following the Ethernet header. */
+    uint8_t *payload =
+    		(uint8_t *)frame->packet + sizeof(EthernetHeader);
+
+    ArpPacket *arp = (ArpPacket *)payload;
+
+//    /* Display the raw ARP packet for debugging. */
+//    for (int i = 0; i < sizeof(ArpPacket); i++)
+//    {
+//        debugPrintf("%02X ",
+//            ((uint8_t*)arp)[i]);
+//
+//        if((i+1)%16==0)
+//            debugPrint("\r\n");
+//    }
+
+    /* Decode and display the ARP packet. */
+    if (!arpReceive(arp))
+    {
+        return;
+    }
+
+    uint32_t senderIp = arpIpToUint32(arp->senderIp);
+
+    arpUpdateCache(senderIp,
+                   arp->senderMac);
+
+    arpPrintCache();
+
+    /* Generate an ARP reply if the request is for this device. */
+    arpSendReply(frame->header, arp);
+}
+
+bool arpLookup(uint32_t ipAddress,
+               uint8_t macAddress[ETH_MAC_LENGTH])
+{
+    for (uint32_t i = 0; i < ARP_CACHE_SIZE; i++)
+    {
+        if (arpCache[i].valid &&
+            arpCache[i].ipAddress == ipAddress)
+        {
+            memcpy(macAddress,
+                   arpCache[i].macAddress,
+                   sizeof(arpCache[i].macAddress));
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void arpUpdateCache(uint32_t ipAddress,
+                    const uint8_t macAddress[ETH_MAC_LENGTH])
+{
+    /* Update existing entry */
+
+    for (uint32_t i = 0; i < ARP_CACHE_SIZE; i++)
+    {
+        if (arpCache[i].valid &&
+            arpCache[i].ipAddress == ipAddress)
+        {
+            memcpy(arpCache[i].macAddress,
+                   macAddress,
+                   ETH_MAC_LENGTH);
+
+            return;
+        }
+    }
+
+    /* Insert into first free slot */
+
+    for (uint32_t i = 0; i < ARP_CACHE_SIZE; i++)
+    {
+        if (!arpCache[i].valid)
+        {
+            arpCache[i].ipAddress = ipAddress;
+
+            memcpy(arpCache[i].macAddress,
+                   macAddress,
+				   ETH_MAC_LENGTH);
+
+            arpCache[i].valid = true;
+
+            return;
+        }
+    }
+
+    /* Cache full.
+       Replace entry 0 for now. */
+
+    arpCache[0].ipAddress = ipAddress;
+
+    memcpy(arpCache[0].macAddress,
+           macAddress,
+		   ETH_MAC_LENGTH);
+
+    arpCache[0].valid = true;
+}

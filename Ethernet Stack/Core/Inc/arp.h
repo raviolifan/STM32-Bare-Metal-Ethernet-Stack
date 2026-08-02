@@ -15,6 +15,24 @@
 
 #include <stdint.h>
 #include "ethernet_driver.h"
+#include "ethernet_frame.h"
+#include <stdbool.h>
+/******************************************************************************
+ * Public Macros
+ ******************************************************************************/
+
+/* ARP operations. */
+#define ARP_REQUEST        1
+#define ARP_REPLY          2
+
+/* Supported hardware and protocol types. */
+#define ARP_HW_ETHERNET    1
+#define ARP_PROTO_IPV4     0x0800
+
+/* IPv4 address length in bytes. */
+#define ARP_IP_LENGTH 	   4
+
+#define ARP_CACHE_SIZE 8
 
 /******************************************************************************
  * Public Types
@@ -35,11 +53,11 @@ typedef struct
 	uint8_t protocolLength;
 	uint16_t operation;
 
-	uint8_t senderMac[6];
-	uint8_t senderIp[4];
+	uint8_t senderMac[ETH_MAC_LENGTH];
+	uint8_t senderIp[ARP_IP_LENGTH];
 
-	uint8_t targetMac[6];
-	uint8_t targetIp[4];
+	uint8_t targetMac[ETH_MAC_LENGTH];
+	uint8_t targetIp[ARP_IP_LENGTH];
 } ArpPacket;
 
 #pragma pack(pop)
@@ -56,17 +74,15 @@ typedef struct
 	ArpPacket arp;
 
 } ArpFrame;
-/******************************************************************************
- * Public Macros
- ******************************************************************************/
 
-/* Public constants */
-#define ARP_REQUEST        1
-#define ARP_REPLY          2
 
-#define ARP_HW_ETHERNET    1
-#define ARP_PROTO_IPV4     0x0800
-#define ARP_IP_LENGTH 	   4
+typedef struct
+{
+    uint32_t ipAddress;
+    uint8_t macAddress[6];
+    bool valid;
+
+} ARPCacheEntry;
 /******************************************************************************
  * Public Functions
  ******************************************************************************/
@@ -78,7 +94,7 @@ typedef struct
  *
  * @param arp Pointer to the received ARP packet.
  */
-void arpReceive(const ArpPacket *arp);
+bool arpReceive(const ArpPacket *arp);
 
 /**
  * @brief Transmit an ARP reply.
@@ -91,5 +107,23 @@ void arpReceive(const ArpPacket *arp);
  */
 void arpSendReply(EthernetHeader *rxHeader,
 		 	 	   ArpPacket *request);
+
+/**
+ * @brief Process a received Ethernet frame containing an ARP packet.
+ *
+ * Locates the ARP payload within the Ethernet frame, processes the
+ * received ARP packet, and generates an ARP reply when the request
+ * targets the local device.
+ *
+ * @param frame Pointer to the received Ethernet frame.
+ */
+void arpReceiveFrame(EthernetFrame *frame);
+
+bool arpLookup(uint32_t ipAddress,
+               uint8_t macAddress[ETH_MAC_LENGTH]);
+
+
+void arpUpdateCache(uint32_t ipAddress,
+                    const uint8_t macAddress[ETH_MAC_LENGTH]);
 
 #endif

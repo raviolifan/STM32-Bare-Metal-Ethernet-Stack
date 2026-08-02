@@ -15,9 +15,10 @@
 #include "ethernet_driver.h"
 #include "main.h"
 #include "debug.h"
-#include "arp.h"
 #include <string.h>
-
+#include "arp.h"
+#include "ethernet_frame.h"
+#include "ipv4.h"
 /******************************************************************************
  * Private Types
  ******************************************************************************/
@@ -38,15 +39,90 @@ extern ETH_TxPacketConfigTypeDef TxConfig;
 
 static uint8_t rxBuffers[ETH_RX_BUFFER_COUNT][ETH_RX_BUFFER_SIZE];
 static uint32_t rxBufferIndex = 0;
+static uint16_t rxFrameLength;
 /******************************************************************************
  * Private Function Prototypes
  ******************************************************************************/
+static void ethernetDispatchFrame(EthernetFrame *frame);
 
+//static void ethernetPrintFrame(EthernetFrame *frame);
+
+static uint16_t ethernetGetEtherType(EthernetHeader *header);
+
+static void ethernetHandleArp(EthernetFrame *frame);
+
+static void ethernetHandleIpv4(EthernetFrame *frame);
+
+static void ethernetHandleIpv6(EthernetFrame *frame);
 /******************************************************************************
  * Private Functions
  ******************************************************************************/
 
+static void ethernetDispatchFrame(EthernetFrame *frame)
+{
+//	debugPrintf("EtherType = 0x%04X\r\n", frame->etherType);
+    switch (frame->etherType)
+    {
+    case ETHERTYPE_ARP:
+    {
+    	ethernetHandleArp(frame);
+        break;
+    }
+    case ETHERTYPE_IPV4:
+    {
+    	ethernetHandleIpv4(frame);
+        break;
+    }
+    case ETHERTYPE_IPV6:
+    {
+    	ethernetHandleIpv6(frame);
+        break;
+    }
+    default:
+    {
+        /* Ignore unsupported Ethernet protocols. */
+    	return;
+    }
+    }
+}
 
+static void ethernetHandleArp(EthernetFrame *frame)
+{
+    debugPrint("Dispatching ARP\r\n");
+
+    arpReceiveFrame(frame);
+}
+
+static void ethernetHandleIpv4(EthernetFrame *frame)
+{
+    debugPrint("IPv4\r\n");
+
+    ipv4ReceiveFrame(frame);
+}
+
+static void ethernetHandleIpv6(EthernetFrame *frame)
+{
+    debugPrint("IPv6\r\n");
+}
+
+
+//static void ethernetPrintFrame(EthernetFrame *frame)
+//{
+//	debugPrint("Frame Received!\r\n");
+//
+//	debugPrintf("Packet = %p\r\n", frame->packet);
+//
+//	printMac(frame->header->destination);
+//	printMac(frame->header->source);
+//
+//	debugPrintf("EtherType = 0x%04X\r\n",
+//	            frame->etherType);
+//}
+
+static uint16_t ethernetGetEtherType(EthernetHeader *header)
+{
+    return __builtin_bswap16(header->etherType);
+}
 
 /******************************************************************************
  * Public Functions
@@ -72,6 +148,15 @@ HAL_StatusTypeDef ethernetInit(void)
     return HAL_ETH_Start(&heth);
 }
 
+/**
+ * @brief Wait for an active Ethernet link.
+ *
+ * Polls the PHY until a valid Ethernet link is established or the
+ * timeout expires.
+ *
+ * @return HAL_OK if the Ethernet link is established.
+ * @return HAL_TIMEOUT if the timeout expires.
+ */
 HAL_StatusTypeDef ethernetWaitForLink(void)
 {
     uint32_t bsr;
@@ -116,6 +201,12 @@ HAL_StatusTypeDef ethernetWaitForLink(void)
     return HAL_TIMEOUT;
 }
 
+/**
+ * @brief Display Ethernet PHY status.
+ *
+ * Reads and prints the PHY identification and status registers
+ * over the debug interface.
+ */
 void ethernetPrintStatus(void)
 {
     uint32_t phyId1;
@@ -135,6 +226,18 @@ void ethernetPrintStatus(void)
     debugPrintf("SCSR = 0x%04X\r\n",(uint16_t)scsr);
 }
 
+/**
+ * @brief Transmit an Ethernet frame.
+ *
+ * Configures the transmit DMA descriptor and sends an Ethernet
+ * frame through the STM32 Ethernet MAC.
+ *
+ * @param frame Pointer to the Ethernet frame buffer.
+ * @param length Length of the Ethernet frame in bytes.
+ *
+ * @return HAL_OK if transmission succeeds.
+ * @return HAL_ERROR otherwise.
+ */
 HAL_StatusTypeDef ethernetTransmit(const void *frame, uint16_t length)
 {
     ETH_BufferTypeDef txBuffer;
@@ -152,82 +255,53 @@ HAL_StatusTypeDef ethernetTransmit(const void *frame, uint16_t length)
             HAL_MAX_DELAY);
 }
 
+/**
+ * @brief Receive and process an Ethernet frame.
+ *
+ * Retrieves a received Ethernet frame from the DMA, parses the
+ * Ethernet header, and dispatches the payload to the appropriate
+ * protocol handler based on the EtherType field.
+ *
+ * @return HAL_OK if a frame is processed successfully.
+ * @return HAL_ERROR if no frame is available or an error occurs.
+ */
 HAL_StatusTypeDef ethernetReceive(void)
 {
     void *rxPacket;
 
+    /* Retrieve the next received Ethernet frame. */
     if (HAL_ETH_ReadData(&heth, &rxPacket) != HAL_OK)
     {
     	return HAL_ERROR;
     }
 
-    debugPrint("Frame Received!\r\n");
+    /* Parse the Ethernet header. */
+    EthernetFrame frame;
 
-    debugPrintf("Packet = %p\r\n", rxPacket);
+    frame.packet = rxPacket;
+    frame.header = (EthernetHeader *)rxPacket;
+    frame.etherType = ethernetGetEtherType(frame.header);
+    frame.length = rxFrameLength;
 
+//    ethernetPrintFrame(&frame);
 
-    EthernetHeader *rxHeader = (EthernetHeader *)rxPacket;
-
-    printMac(rxHeader->destination);
-    printMac(rxHeader->source);
-
-    uint16_t etherType =
-            __builtin_bswap16(rxHeader->etherType);
-
-    debugPrintf("EtherType = 0x%04X\r\n",
-                etherType);
-
-    switch (etherType)
-    {
-    case ETHERTYPE_ARP:
-    {
-        debugPrint("ARP\r\n");
-
-        uint8_t *payload =
-        		(uint8_t *)rxPacket + sizeof(EthernetHeader);
-
-        ArpPacket *arp = (ArpPacket *)payload;
-
-
-
-        for(int i = 0; i < sizeof(ArpPacket); i++)
-        {
-            debugPrintf("%02X ",
-                ((uint8_t*)arp)[i]);
-
-            if((i+1)%16==0)
-                debugPrint("\r\n");
-        }
-
-        arpReceive(arp);
-
-        arpSendReply(rxHeader, arp);
-
-        break;
-    }
-    case ETHERTYPE_IPV4:
-    {
-        debugPrint("IPv4\r\n");
-        break;
-    }
-    case ETHERTYPE_IPV6:
-    {
-        debugPrint("IPv6\r\n");
-        break;
-    }
-    default:
-    {
-    	return HAL_OK;
-    }
-    /* End switch */
-    }
+    /* Dispatch the payload based on the EtherType field. */
+    ethernetDispatchFrame(&frame);
 
     return HAL_OK;
 }
 
+/**
+ * @brief Allocate a receive buffer.
+ *
+ * HAL callback invoked when a new receive buffer is required.
+ * Supplies the next available receive buffer from the buffer pool.
+ *
+ * @param buff Pointer to the receive buffer pointer.
+ */
 void HAL_ETH_RxAllocateCallback(uint8_t **buff)
 {
-    debugPrint("Allocate Callback\r\n");
+//    debugPrint("Allocate Callback\r\n");
 
     *buff = rxBuffers[rxBufferIndex];
 
@@ -239,16 +313,26 @@ void HAL_ETH_RxAllocateCallback(uint8_t **buff)
     }
 }
 
-
+/**
+ * @brief Link received DMA buffers.
+ *
+ * HAL callback used to associate received DMA buffers with the
+ * received Ethernet frame.
+ *
+ * @param pStart Pointer to the first buffer in the frame.
+ * @param pEnd Pointer to the last buffer in the frame.
+ * @param buff Pointer to the current receive buffer.
+ * @param Length Length of the received buffer in bytes.
+ */
 void HAL_ETH_RxLinkCallback(void **pStart,
                             void **pEnd,
                             uint8_t *buff,
                             uint16_t Length)
 {
-    (void)Length;
-
     *pStart = buff;
     *pEnd = buff;
+
+    rxFrameLength = Length;
 }
 
 
